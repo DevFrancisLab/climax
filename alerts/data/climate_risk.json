@@ -1,0 +1,59 @@
+[
+  {
+    "county": "busia",
+    "risk_type": "flood",
+    "risk_level": "high",
+    "forecast": "Heavy rainfall expected in next 48 hours. Flooding likely in low-lying areas.",
+    "timestamp": "2026-01-28T08:00:00Z"
+  },
+  {
+    "county": "kisumu",
+    "risk_type": "flood",
+    "risk_level": "high",
+    "forecast": "Rivers likely to overflow. Evacuate vulnerable areas.",
+    "timestamp": "2026-01-28T08:00:00Z"
+  },
+  {
+    "county": "garissa",
+    "risk_type": "drought",
+    "risk_level": "medium",
+    "forecast": "Below average rainfall expected next week. Water conservation advised.",
+    "timestamp": "2026-01-28T08:00:00Z"
+  },
+  {
+    "county": "turkana",
+    "risk_type": "drought",
+    "risk_level": "high",
+    "forecast": "Severe water shortage expected. Prepare emergency water sources.",
+    "timestamp": "2026-01-28T08:00:00Z"
+  },
+  {
+    "county": "marsabit",
+    "risk_type": "flood",
+    "risk_level": "medium",
+    "forecast": "Flash floods possible in riverbeds. Monitor local alerts.",
+    "timestamp": "2026-01-28T08:00:00Z"
+  },
+  {
+    "county": "makueni",
+    "risk_type": "drought",
+    "risk_level": "medium",
+    "forecast": "Dry conditions expected. Farmers advised to irrigate early.",
+    "timestamp": "2026-01-28T08:00:00Z"
+  },
+  {
+    "county": "nairobi",
+    "risk_type": "flood",
+    "risk_level": "low",
+    "forecast": "Moderate rainfall expected. Avoid low-lying streets during heavy rains.",
+    "timestamp": "2026-01-28T08:00:00Z"
+  },
+  {
+    "county": "kilifi",
+    "risk_type": "storm",
+    "risk_level": "medium",
+    "forecast": "Strong winds expected near the coast. Secure loose structures.",
+    "timestamp": "2026-01-28T08:00:00Z"
+  }
+]
+
