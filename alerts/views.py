@@ -6,6 +6,7 @@ from .services.ai_service import AIService
 from .services.ussd_translations import (
     get_text,
     build_county_menu,
+    get_pagination_info,
     COUNTIES,
     COUNTY_DISPLAY,
 )
@@ -69,6 +70,23 @@ def has_language_been_selected(phone_number: str) -> bool:
     return _ussd_sessions.get(phone_number, {}).get("language_selected", False)
 
 
+def get_session_county_page(phone_number: str) -> int:
+    """Get current county pagination page from session."""
+    return _ussd_sessions.get(phone_number, {}).get("county_page", 1)
+
+
+def set_session_county_page(phone_number: str, page: int):
+    """Set county pagination page in session."""
+    if phone_number not in _ussd_sessions:
+        _ussd_sessions[phone_number] = {}
+    _ussd_sessions[phone_number]["county_page"] = page
+
+
+def reset_session_county_page(phone_number: str):
+    """Reset county pagination to page 1."""
+    set_session_county_page(phone_number, 1)
+
+
 @csrf_exempt
 def ussd_callback(request):
     """Handle USSD callback from Africa's Talking with language support."""
@@ -125,11 +143,60 @@ def ussd_callback(request):
         if current_step == "1":
             # SELECT ENGLISH
             set_user_language(phone_number, "en")
+            reset_session_county_page(phone_number)
             response = f"CON {get_text('en', 'main_menu')}"
         elif current_step == "2":
             # SELECT KISWAHILI
             set_user_language(phone_number, "sw")
+            reset_session_county_page(phone_number)
             response = f"CON {get_text('sw', 'main_menu')}"
+    
+    # NAVIGATION CONTROL: 00 - Go to Main Menu (English only)
+    elif language == "en" and current_step == "00" and language_selected:
+        set_session_state(phone_number, "main_menu")
+        reset_session_county_page(phone_number)
+        response = f"CON {get_text(language, 'main_menu')}"
+    
+    # NAVIGATION CONTROL: 98 - Next page (English county menu pagination only)
+    elif language == "en" and current_step == "98" and current_state == "county_selection":
+        current_page = get_session_county_page(phone_number)
+        pagination = get_pagination_info(current_page, counties_per_page=5)
+        
+        # Move to next page if available
+        if current_page < pagination['total_pages']:
+            next_page = current_page + 1
+            set_session_county_page(phone_number, next_page)
+            response = f"CON {build_county_menu(language, page=next_page, counties_per_page=5)}"
+        else:
+            # Already on last page
+            response = f"CON {build_county_menu(language, page=current_page, counties_per_page=5)}"
+    
+    # NAVIGATION CONTROL: 0 - Back (English only)
+    elif language == "en" and current_step == "0" and language_selected:
+        # Go back based on current state
+        if current_state == "county_selection":
+            # From county selection → check if on paginated page
+            current_page = get_session_county_page(phone_number)
+            if current_page > 1:
+                # Go back to previous county page
+                prev_page = current_page - 1
+                set_session_county_page(phone_number, prev_page)
+                response = f"CON {build_county_menu(language, page=prev_page, counties_per_page=5)}"
+            else:
+                # On page 1, go back to main menu
+                set_session_state(phone_number, "main_menu")
+                reset_session_county_page(phone_number)
+                response = f"CON {get_text(language, 'main_menu')}"
+        elif current_state == "risk_status":
+            # From risk status → back to main menu
+            set_session_state(phone_number, "main_menu")
+            reset_session_county_page(phone_number)
+            response = f"CON {get_text(language, 'main_menu')}"
+        else:
+            # From main menu or other states, go to language selection
+            set_session_state(phone_number, "language_selection")
+            reset_session_county_page(phone_number)
+            response = f"CON {get_text(language, 'language_selection')}"
     
     # STATE-BASED ROUTING: County selection takes priority over main menu routing
     elif current_state == "county_selection" and current_step in COUNTIES:
@@ -176,7 +243,8 @@ def ussd_callback(request):
             if step_count == 2:
                 # Just selected register, show county menu
                 set_session_state(phone_number, "county_selection")
-                response = f"CON {build_county_menu(language)}"
+                county_page = get_session_county_page(phone_number)
+                response = f"CON {build_county_menu(language, page=county_page, counties_per_page=5)}"
             elif step_count == 3:
                 # Selected county (step 2)
                 county_code = steps[2]
@@ -253,7 +321,8 @@ def ussd_callback(request):
         if current_step == "1":
             # Register option - show county menu
             set_session_state(phone_number, "county_selection")
-            response = f"CON {build_county_menu(language)}"
+            county_page = get_session_county_page(phone_number)
+            response = f"CON {build_county_menu(language, page=county_page, counties_per_page=5)}"
         elif current_step == "2":
             # Check risk status
             try:

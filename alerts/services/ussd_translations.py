@@ -112,8 +112,33 @@ def get_text(language, key, **kwargs):
     return text
 
 
-def build_county_menu(language):
-    """Build county selection menu in specified language.
+def get_pagination_info(page=1, counties_per_page=5):
+    """Get pagination information for county menu.
+    
+    Args:
+        page: Current page number (1-indexed)
+        counties_per_page: Counties per page
+    
+    Returns:
+        Dict with total_pages, start_idx, end_idx
+    """
+    sorted_keys = sorted(COUNTIES.keys(), key=int)
+    total_counties = len(sorted_keys)
+    total_pages = (total_counties + counties_per_page - 1) // counties_per_page
+    start_idx = (page - 1) * counties_per_page
+    end_idx = start_idx + counties_per_page
+    
+    return {
+        'total_pages': total_pages,
+        'start_idx': start_idx,
+        'end_idx': end_idx,
+        'total_counties': total_counties,
+        'current_page': page
+    }
+
+
+def build_county_menu(language, page=1, counties_per_page=5):
+    """Build county selection menu in specified language with pagination support.
     
     IMPROVEMENT 1: Ensures counties are always displayed in numeric order
     by sorting keys as integers instead of strings.
@@ -121,18 +146,42 @@ def build_county_menu(language):
     IMPROVEMENT 2: Easy to extend for new languages - just add language
     key to COUNTY_DISPLAY dictionary.
     
+    IMPROVEMENT 4: USSD navigation controls - adds pagination and menu navigation
+    for better UX on limited USSD screens. Shows 5 counties per page with
+    "More counties" option for navigation.
+    
     Args:
         language: 'en' or 'sw'
+        page: Current page number (1-indexed)
+        counties_per_page: Counties to show per page (default 5)
     
     Returns:
-        Formatted county menu string with counties in numeric order
+        Formatted county menu string with counties in numeric order plus navigation controls
     """
     menu = get_text(language, 'county_selection')
     county_display = COUNTY_DISPLAY.get(language, COUNTY_DISPLAY['en'])
     
     # IMPROVEMENT 1: Sort counties by numeric key to ensure consistent order
-    for key in sorted(county_display.keys(), key=int):
+    sorted_keys = sorted(county_display.keys(), key=int)
+    
+    # Calculate pagination
+    start_idx = (page - 1) * counties_per_page
+    end_idx = start_idx + counties_per_page
+    total_pages = (len(sorted_keys) + counties_per_page - 1) // counties_per_page
+    
+    # Add counties for current page
+    for key in sorted_keys[start_idx:end_idx]:
         val = county_display[key]
         menu += f"{key}. {val}\n"
     
-    return menu.rstrip('\n')
+    # IMPROVEMENT 4: Add navigation controls for English only
+    if language == 'en':
+        # Add "More counties" option if not on last page
+        if page < total_pages:
+            menu += "98. More counties\n"
+        
+        # Add back and main menu options (standard USSD controls)
+        menu += "0. Back\n"
+        menu += "00. Main menu"
+    
+    return menu

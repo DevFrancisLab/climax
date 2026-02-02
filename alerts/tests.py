@@ -109,7 +109,9 @@ class USSDCallbackTests(TestCase):
         content = response.content.decode()
         self.assertIn('Select County', content)
         self.assertIn('Busia', content)
-        self.assertIn('Kilifi', content)
+        # With pagination (5 counties per page), Kilifi is on page 2
+        # Check for pagination option instead
+        self.assertIn('More counties', content)
 
     @patch('alerts.views.AfricasTalkingService.send_sms')
     def test_ussd_register_user(self, mock_send_sms):
