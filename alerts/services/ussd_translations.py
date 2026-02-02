@@ -60,6 +60,7 @@ TRANSLATIONS = {
         'back_option': '0. Back',
         'main_menu_option': '00. Main menu',
         'more_option': '98. More counties',
+        'language_select_option': '99. Change language',
     },
     'sw': {
         'language_selection': 'Chagua Lugha:\n1. English\n2. Kiswahili',
@@ -84,6 +85,7 @@ TRANSLATIONS = {
         'back_option': '0. Rudi',
         'main_menu_option': '00. Menyu Kuu',
         'more_option': '98. Kaunti zaidi',
+        'language_select_option': '99. Badili lugha',
     }
 }
 
@@ -189,8 +191,9 @@ def build_county_menu(language, page=1, counties_per_page=5):
         if page < total_pages:
             menu += f"{get_text(language, 'more_option')}\n"
         
-        # Add back and main menu options (standard USSD controls)
+        # Add back, main menu, and change language options (standard USSD controls)
         menu += f"{get_text(language, 'back_option')}\n"
-        menu += get_text(language, 'main_menu_option')
+        menu += f"{get_text(language, 'main_menu_option')}\n"
+        menu += get_text(language, 'language_select_option')
     
     return menu

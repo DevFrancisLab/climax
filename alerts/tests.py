@@ -76,7 +76,7 @@ class USSDCallbackTests(TestCase):
         
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
-        self.assertIn('Mfumo wa Onyo', content)  # Swahili for Alert System
+        self.assertIn('Tahadhari ya Hali ya Hewa', content)  # Swahili for Climate Alert System
         self.assertIn('Jisajili', content)  # Swahili for Register
         
         # Verify session language was set
