@@ -41,7 +41,11 @@ def set_user_language(phone_number: str, language: str):
 
 
 def get_session_state(phone_number: str) -> str:
-    """Get current USSD session state."""
+    """Get current USSD session state.
+    
+    MULTILINGUAL FEATURE: Returns 'language_selection' as default state
+    for new sessions, ensuring users select language before accessing menus.
+    """
     return _ussd_sessions.get(phone_number, {}).get("state", "language_selection")
 
 
@@ -74,6 +78,11 @@ def ussd_callback(request):
 
     response = ""
     
+    # Parse the USSD navigation steps (Africa's Talking concatenates with *)
+    steps = text.split("*") if text else []
+    step_count = len(steps)
+    current_step = steps[-1] if steps else ""  # The latest step selected
+    
     # Determine current language and state
     language = get_user_language(phone_number)
     language_selected = has_language_been_selected(phone_number)
@@ -85,6 +94,9 @@ def ussd_callback(request):
             "sessionId": session_id,
             "phoneNumber": phone_number,
             "text": text,
+            "steps": steps,
+            "step_count": step_count,
+            "current_step": current_step,
             "language": language,
             "language_selected": language_selected,
             "current_state": current_state,
@@ -94,26 +106,35 @@ def ussd_callback(request):
         # Keep handler robust; never fail due to logging
         pass
     
-    # NEW SESSION (empty text) - show main menu
+    # NEW SESSION (empty text) - initialize state based on language selection
     if text == "":
-        set_session_state(phone_number, "main_menu")
-        response = f"CON {get_text(language, 'main_menu')}"
+        # Always show the appropriate starting menu
+        if language_selected:
+            # User has selected language before - show main menu
+            set_session_state(phone_number, "main_menu")
+            response = f"CON {get_text(language, 'main_menu')}"
+        else:
+            # New session or user needs to select language
+            # MULTILINGUAL FEATURE: Show language selection screen
+            set_session_state(phone_number, "language_selection")
+            response = f"CON {get_text(language, 'language_selection')}"
     
-    # MAIN MENU - Register (option 1)
-    elif text == "1" and current_state == "main_menu":
-        try:
-            user = UserAlert.objects.get(phone_number=phone_number)
-            # Already registered - show message and end
-            already_registered = get_text(language, "already_registered")
-            response = f"END {already_registered}"
-        except UserAlert.DoesNotExist:
-            # Not registered - show county selection
-            set_session_state(phone_number, "county_selection")
-            response = f"CON {build_county_menu(language)}"
-
-    # COUNTY SELECTION - Select county (1-8)
-    elif text in COUNTIES and current_state == "county_selection":
-        county_code = text
+    # STEP 1: LANGUAGE SELECTION (format: {language_choice} OR {language}*{menu_choice})
+    # MULTILINGUAL FEATURE: User selects '1' for English or '2' for Kiswahili
+    elif step_count == 1 and current_step in ["1", "2"] and not language_selected:
+        if current_step == "1":
+            # SELECT ENGLISH
+            set_user_language(phone_number, "en")
+            response = f"CON {get_text('en', 'main_menu')}"
+        elif current_step == "2":
+            # SELECT KISWAHILI
+            set_user_language(phone_number, "sw")
+            response = f"CON {get_text('sw', 'main_menu')}"
+    
+    # STATE-BASED ROUTING: County selection takes priority over main menu routing
+    elif current_state == "county_selection" and current_step in COUNTIES:
+        # User is selecting a county
+        county_code = current_step
         county = COUNTIES[county_code]
         counties_display = COUNTY_DISPLAY.get(language, COUNTY_DISPLAY["en"])
         county_display = counties_display[county_code]
@@ -139,85 +160,136 @@ def ussd_callback(request):
             error_text = get_text(language, "registration_error")
             response = f"END {error_text}"
             print(f"Registration error for {phone_number}: {e}")
-
-    # MAIN MENU - Check Risk Status (option 2)
-    elif text == "2" and current_state == "main_menu":
-        try:
-            user = UserAlert.objects.get(phone_number=phone_number)
-            language = user.language
-            # Fetch latest approved alert for user's county
-            alert = ClimateAlert.objects.filter(
-                county=user.county, approved=True
-            ).order_by("-created_at").first()
-            if alert:
-                title = get_text(language, "risk_status_title", county=user.get_county_display())
-                back_text = get_text(language, "back_to_menu")
-                set_session_state(phone_number, "risk_status")
-                response = f"CON {title}\n{alert.message}\n{back_text}"
-            else:
-                no_alerts = get_text(language, "no_alerts", county=user.get_county_display())
-                response = f"END {no_alerts}"
-        except UserAlert.DoesNotExist:
-            register_first = get_text(language, "register_first")
-            response = f"END {register_first}"
-
-    # MAIN MENU - Unsubscribe (option 3)
-    elif text == "3" and current_state == "main_menu":
-        try:
-            UserAlert.objects.filter(phone_number=phone_number).update(is_active=False)
-            unsubscribed_text = get_text(language, "unsubscribed")
-            response = f"END {unsubscribed_text}"
-        except Exception as e:
-            error_text = get_text(language, "unsubscribe_error")
-            response = f"END {error_text}"
-            print(f"Unsubscribe error: {e}")
-
-    # RISK STATUS - Back to main menu (option 1)
-    elif text == "1" and current_state == "risk_status":
+    
+    # STATE-BASED ROUTING: Risk status back option
+    elif current_state == "risk_status" and current_step == "1":
         set_session_state(phone_number, "main_menu")
         response = f"CON {get_text(language, 'main_menu')}"
-
-    # REGISTER with combined format (format: 1*{county_code})
-    elif text.startswith("1*") and current_state == "county_selection":
-        parts = text.split("*")
-        if len(parts) >= 2:
-            county_code = parts[1]
-            if county_code in COUNTIES:
-                county = COUNTIES[county_code]
-                counties_display = COUNTY_DISPLAY.get(language, COUNTY_DISPLAY["en"])
-                county_display = counties_display[county_code]
-
-                try:
-                    user_alert, created = UserAlert.objects.update_or_create(
-                        phone_number=phone_number,
-                        defaults={
-                            "county": county,
-                            "language": language,
-                            "is_active": True,
-                        },
-                    )
-                    # Send confirmation SMS
-                    msg = get_text(language, "registration_confirmation", county=county_display)
-                    AfricasTalkingService.send_sms(phone_number, msg)
-                    success_text = get_text(language, "registration_success", county=county_display)
-                    # Keep language preference but reset state to main_menu for next interaction
-                    if phone_number in _ussd_sessions:
-                        _ussd_sessions[phone_number]["state"] = "main_menu"
-                    response = f"END {success_text}"
-                except Exception as e:
-                    error_text = get_text(language, "registration_error")
+    
+    # STEP 2+: HANDLE CONCATENATED STEPS (format: {language}*{step1}*{step2}*...)
+    elif step_count >= 2:
+        # User's language is set from step 0 (language selection), now handle subsequent menu choices
+        menu_choice = steps[1] if len(steps) > 1 else ""
+        
+        if menu_choice == "1":
+            # Register option (step 1)
+            if step_count == 2:
+                # Just selected register, show county menu
+                set_session_state(phone_number, "county_selection")
+                response = f"CON {build_county_menu(language)}"
+            elif step_count == 3:
+                # Selected county (step 2)
+                county_code = steps[2]
+                if county_code in COUNTIES:
+                    county = COUNTIES[county_code]
+                    counties_display = COUNTY_DISPLAY.get(language, COUNTY_DISPLAY["en"])
+                    county_display = counties_display[county_code]
+                    
+                    try:
+                        user_alert, created = UserAlert.objects.update_or_create(
+                            phone_number=phone_number,
+                            defaults={
+                                "county": county,
+                                "language": language,
+                                "is_active": True,
+                            },
+                        )
+                        # Send confirmation SMS
+                        msg = get_text(language, "registration_confirmation", county=county_display)
+                        AfricasTalkingService.send_sms(phone_number, msg)
+                        success_text = get_text(language, "registration_success", county=county_display)
+                        # Keep language preference but reset state to main_menu for next interaction
+                        if phone_number in _ussd_sessions:
+                            _ussd_sessions[phone_number]["state"] = "main_menu"
+                        response = f"END {success_text}"
+                    except Exception as e:
+                        error_text = get_text(language, "registration_error")
+                        response = f"END {error_text}"
+                        print(f"Registration error for {phone_number}: {e}")
+                else:
+                    error_text = get_text(language, "invalid_county")
                     response = f"END {error_text}"
-                    print(f"Registration error for {phone_number}: {e}")
-            else:
-                error_text = get_text(language, "invalid_county")
+        
+        elif menu_choice == "2":
+            # Check risk status
+            if step_count == 2:
+                # Show risk status
+                try:
+                    user = UserAlert.objects.get(phone_number=phone_number)
+                    language = user.language
+                    alert = ClimateAlert.objects.filter(
+                        county=user.county, approved=True
+                    ).order_by("-created_at").first()
+                    if alert:
+                        title = get_text(language, "risk_status_title", county=user.get_county_display())
+                        back_text = get_text(language, "back_to_menu")
+                        set_session_state(phone_number, "risk_status")
+                        response = f"CON {title}\n{alert.message}\n{back_text}"
+                    else:
+                        no_alerts = get_text(language, "no_alerts", county=user.get_county_display())
+                        response = f"END {no_alerts}"
+                except UserAlert.DoesNotExist:
+                    register_first = get_text(language, "register_first")
+                    response = f"END {register_first}"
+            elif step_count == 3 and steps[2] == "1":
+                # Back to menu from risk status
+                set_session_state(phone_number, "main_menu")
+                response = f"CON {get_text(language, 'main_menu')}"
+        
+        elif menu_choice == "3":
+            # Unsubscribe
+            try:
+                UserAlert.objects.filter(phone_number=phone_number).update(is_active=False)
+                unsubscribed_text = get_text(language, "unsubscribed")
+                response = f"END {unsubscribed_text}"
+            except Exception as e:
+                error_text = get_text(language, "unsubscribe_error")
                 response = f"END {error_text}"
+                print(f"Unsubscribe error: {e}")
+    
+    # STATE-BASED ROUTING: Main menu and other single-step requests
+    elif language_selected and step_count == 1:
+        # User has language selected, route based on current step
+        if current_step == "1":
+            # Register option - show county menu
+            set_session_state(phone_number, "county_selection")
+            response = f"CON {build_county_menu(language)}"
+        elif current_step == "2":
+            # Check risk status
+            try:
+                user = UserAlert.objects.get(phone_number=phone_number)
+                language = user.language
+                alert = ClimateAlert.objects.filter(
+                    county=user.county, approved=True
+                ).order_by("-created_at").first()
+                if alert:
+                    title = get_text(language, "risk_status_title", county=user.get_county_display())
+                    back_text = get_text(language, "back_to_menu")
+                    set_session_state(phone_number, "risk_status")
+                    response = f"CON {title}\n{alert.message}\n{back_text}"
+                else:
+                    no_alerts = get_text(language, "no_alerts", county=user.get_county_display())
+                    response = f"END {no_alerts}"
+            except UserAlert.DoesNotExist:
+                register_first = get_text(language, "register_first")
+                response = f"END {register_first}"
+        elif current_step == "3":
+            # Unsubscribe
+            try:
+                UserAlert.objects.filter(phone_number=phone_number).update(is_active=False)
+                unsubscribed_text = get_text(language, "unsubscribed")
+                response = f"END {unsubscribed_text}"
+            except Exception as e:
+                error_text = get_text(language, "unsubscribe_error")
+                response = f"END {error_text}"
+                print(f"Unsubscribe error: {e}")
+        else:
+            # Invalid option - show main menu
+            response = f"CON {get_text(language, 'main_menu')}"
 
     else:
-        # Fallback: show main menu or language selection based on state
-        if current_state == "language_selection":
-            response = f"CON {get_text(language, 'language_selection')}"
-        else:
-            response = f"CON {get_text(language, 'main_menu')}"
+        # Fallback: show language selection if language not selected
+        response = f"CON {get_text(language, 'language_selection')}"
 
     return HttpResponse(response, content_type="text/plain")
 

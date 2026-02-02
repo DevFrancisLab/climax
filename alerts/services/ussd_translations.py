@@ -1,5 +1,7 @@
 """USSD translations and menu builders for multilingual support"""
 
+# IMPROVEMENT 1: Counties dictionary with ordered numeric keys
+# This ensures numeric order is maintained and easy to extend
 COUNTIES = {
     '1': 'busia',
     '2': 'kisumu',
@@ -50,6 +52,10 @@ TRANSLATIONS = {
         'unsubscribed': 'You have been unsubscribed from alerts.',
         'unsubscribe_error': 'Error unsubscribing. Please try again.',
         'already_registered': 'You are already registered for alerts. Dial again to access the main menu.',
+        # IMPROVEMENT 3: Added missing translation keys for better USSD flow handling
+        'invalid_option': 'Invalid option. Please try again.',
+        'session_timeout': 'Session expired. Please dial again.',
+        'back': '1. Back',
     },
     'sw': {
         'language_selection': 'Chagua Lugha:\n1. English\n2. Kiswahili',
@@ -66,6 +72,10 @@ TRANSLATIONS = {
         'unsubscribed': 'Umesitisha kupokea onyo.',
         'unsubscribe_error': 'Hitilafu katika kusitisha. Tafadhali jaribu tena.',
         'already_registered': 'Umejisajili tayari kwa onyo. Piga upya uone menyu ya kawaida.',
+        # IMPROVEMENT 3: Added missing translation keys for better USSD flow handling
+        'invalid_option': 'Chaguo si sahihi. Tafadhali jaribu tena.',
+        'session_timeout': 'Kikao kimeacha. Tafadhali piga upya.',
+        'back': '1. Rudi',
     }
 }
 
@@ -73,31 +83,56 @@ TRANSLATIONS = {
 def get_text(language, key, **kwargs):
     """Get translated text for a given key and language.
     
+    IMPROVEMENT 3: Enhanced function to safely handle missing formatting keys.
+    If a formatting placeholder is missing from kwargs, it will be left as-is
+    instead of crashing the application.
+    
     Args:
         language: 'en' or 'sw'
         key: Translation key
         **kwargs: Format parameters (e.g., county='Nairobi')
     
     Returns:
-        Translated and formatted text
+        Translated and formatted text. If language not found, defaults to English.
+        If formatting key is missing, placeholder is preserved in output.
     """
+    # Get text from language or fall back to English
     text = TRANSLATIONS.get(language, TRANSLATIONS['en']).get(key, '')
-    return text.format(**kwargs) if kwargs else text
+    
+    # Safely format text with missing key protection
+    if kwargs:
+        try:
+            return text.format(**kwargs)
+        except KeyError as e:
+            # Log the missing key but don't crash
+            print(f"WARNING: Missing format key {e} for translation key '{key}' in language '{language}'")
+            # Return text with placeholders intact
+            return text
+    
+    return text
 
 
 def build_county_menu(language):
     """Build county selection menu in specified language.
     
+    IMPROVEMENT 1: Ensures counties are always displayed in numeric order
+    by sorting keys as integers instead of strings.
+    
+    IMPROVEMENT 2: Easy to extend for new languages - just add language
+    key to COUNTY_DISPLAY dictionary.
+    
     Args:
         language: 'en' or 'sw'
     
     Returns:
-        Formatted county menu string
+        Formatted county menu string with counties in numeric order
     """
     menu = get_text(language, 'county_selection')
     county_display = COUNTY_DISPLAY.get(language, COUNTY_DISPLAY['en'])
     
-    for key, val in county_display.items():
+    # IMPROVEMENT 1: Sort counties by numeric key to ensure consistent order
+    for key in sorted(county_display.keys(), key=int):
+        val = county_display[key]
         menu += f"{key}. {val}\n"
     
     return menu.rstrip('\n')

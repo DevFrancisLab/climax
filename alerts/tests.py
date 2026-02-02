@@ -36,7 +36,7 @@ class USSDCallbackTests(TestCase):
         _ussd_sessions.clear()
 
     def test_ussd_language_selection(self):
-        """Test main menu shown on initial dial (language selection removed)"""
+        """Test language selection at start of flow"""
         response = self.client.post(self.ussd_url, {
             'sessionId': 'test123',
             'phoneNumber': '0700000000',
@@ -45,19 +45,12 @@ class USSDCallbackTests(TestCase):
         
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
-        self.assertIn('Climate Alert System', content)
-        self.assertIn('Register for alerts', content)
+        self.assertIn('Select Language', content)
+        self.assertIn('1. English', content)
+        self.assertIn('2. Kiswahili', content)
 
     def test_ussd_language_english(self):
-        """Test main menu is accessible"""
-        # Dial
-        self.client.post(self.ussd_url, {
-            'sessionId': 'test123',
-            'phoneNumber': '0700000000',
-            'text': ''
-        })
-        
-        # Press option 1 (Register) - should show county menu
+        """Test selecting English language"""
         response = self.client.post(self.ussd_url, {
             'sessionId': 'test123',
             'phoneNumber': '0700000000',
@@ -66,31 +59,46 @@ class USSDCallbackTests(TestCase):
         
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
-        self.assertIn('Select County', content)
+        self.assertIn('Climate Alert System', content)
+        self.assertIn('Register for alerts', content)
+        
+        # Verify session language is English (either explicitly set or default)
+        lang = _ussd_sessions.get('0700000000', {}).get('language', 'en')
+        self.assertEqual(lang, 'en')
 
     def test_ussd_language_swahili(self):
-        """Test language is Swahili by default (no explicit selection)"""
-        # Dial with new phone
-        self.client.post(self.ussd_url, {
+        """Test selecting Swahili language"""
+        response = self.client.post(self.ussd_url, {
             'sessionId': 'test123',
             'phoneNumber': '0700000001',
-            'text': ''
+            'text': '2'
         })
         
-        # Verify language defaults to English
-        lang = _ussd_sessions.get('0700000001', {}).get('language', 'en')
-        self.assertEqual(lang, 'en')
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('Mfumo wa Onyo', content)  # Swahili for Alert System
+        self.assertIn('Jisajili', content)  # Swahili for Register
+        
+        # Verify session language was set
+        self.assertEqual(_ussd_sessions.get('0700000001', {}).get('language'), 'sw')
 
     def test_ussd_county_selection_menu(self):
         """Test county selection menu is shown"""
-        # Dial
+        # Dial (shows language selection)
         self.client.post(self.ussd_url, {
             'sessionId': 'test123',
             'phoneNumber': '0700000000',
             'text': ''
         })
         
-        # Select register (option 1)
+        # Select English (option 1)
+        self.client.post(self.ussd_url, {
+            'sessionId': 'test123',
+            'phoneNumber': '0700000000',
+            'text': '1'
+        })
+        
+        # Select register (option 1 from main menu)
         response = self.client.post(self.ussd_url, {
             'sessionId': 'test123',
             'phoneNumber': '0700000000',
@@ -108,11 +116,18 @@ class USSDCallbackTests(TestCase):
         """Test user registration for alerts"""
         mock_send_sms.return_value = {'success': True}
         
-        # Dial (shows main menu)
+        # Dial (shows language selection)
         self.client.post(self.ussd_url, {
             'sessionId': 'test123',
             'phoneNumber': '0700000000',
             'text': ''
+        })
+        
+        # Select English (option 1)
+        self.client.post(self.ussd_url, {
+            'sessionId': 'test123',
+            'phoneNumber': '0700000000',
+            'text': '1'
         })
         
         # Select register (option 1 from main menu) - shows county selection
@@ -142,14 +157,21 @@ class USSDCallbackTests(TestCase):
 
     @patch('alerts.views.AfricasTalkingService.send_sms')
     def test_ussd_register_user_swahili(self, mock_send_sms):
-        """Test user registration (language no longer selected explicitly)"""
+        """Test user registration in Kiswahili"""
         mock_send_sms.return_value = {'success': True}
         
-        # Dial
+        # Dial (shows language selection)
         self.client.post(self.ussd_url, {
             'sessionId': 'test123',
             'phoneNumber': '0700000003',
             'text': ''
+        })
+        
+        # Select Kiswahili (option 2)
+        self.client.post(self.ussd_url, {
+            'sessionId': 'test123',
+            'phoneNumber': '0700000003',
+            'text': '2'
         })
         
         # Select register (option 1 from main menu)
@@ -168,27 +190,38 @@ class USSDCallbackTests(TestCase):
         
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
-        self.assertIn('registered', content.lower())
+        # Check for Kiswahili registration confirmation text
+        self.assertIn('umejisajili', content.lower())
         
         # Verify user was saved
         user = UserAlert.objects.filter(phone_number='0700000003').first()
         self.assertIsNotNone(user)
         self.assertEqual(user.county, 'nairobi')
+        self.assertEqual(user.language, 'sw')
 
     @patch('alerts.views.AfricasTalkingService.send_sms')
     def test_ussd_unsubscribe(self, mock_send_sms):
         """Test user unsubscribe"""
         # First create and register a user
+        # Dial (language selection)
         self.client.post(self.ussd_url, {
             'sessionId': 'test123',
             'phoneNumber': '0700000001',
             'text': ''
         })
+        # Select English
         self.client.post(self.ussd_url, {
             'sessionId': 'test123',
             'phoneNumber': '0700000001',
             'text': '1'
         })
+        # Select register
+        self.client.post(self.ussd_url, {
+            'sessionId': 'test123',
+            'phoneNumber': '0700000001',
+            'text': '1'
+        })
+        # Select county
         self.client.post(self.ussd_url, {
             'sessionId': 'test123',
             'phoneNumber': '0700000001',
@@ -212,11 +245,18 @@ class USSDCallbackTests(TestCase):
 
     def test_ussd_risk_status_not_registered(self):
         """Test risk status when user not registered"""
-        # Dial
+        # Dial (language selection)
         self.client.post(self.ussd_url, {
             'sessionId': 'test123',
             'phoneNumber': '0700000002',
             'text': ''
+        })
+        
+        # Select English
+        self.client.post(self.ussd_url, {
+            'sessionId': 'test123',
+            'phoneNumber': '0700000002',
+            'text': '1'
         })
         
         # Check risk status when not registered (option 2 from main menu)
