@@ -115,8 +115,8 @@ def ussd_callback(request):
     PRODUCTION HARDENING:
     - Global try/except ensures endpoint never crashes
     - All code paths guarantee valid CON/END response
-    - State-based language selection fixes deep menu navigation
-    - Language selection triggered by state, not step_count
+    - State-based + current_step routing (not index-based with steps[1])
+    - Works with deep USSD paths like 1*99*2*1 from language change
     """
     try:
         session_id = request.POST.get("sessionId")
@@ -127,8 +127,7 @@ def ussd_callback(request):
         
         # Parse the USSD navigation steps (Africa's Talking concatenates with *)
         steps = text.split("*") if text else []
-        step_count = len(steps)
-        current_step = steps[-1] if steps else ""  # The latest step selected
+        current_step = steps[-1] if steps else ""  # The LATEST step selected (user's current choice)
         
         # Determine current language and state
         language = get_user_language(phone_number)
@@ -142,7 +141,6 @@ def ussd_callback(request):
                 "phoneNumber": phone_number,
                 "text": text,
                 "steps": steps,
-                "step_count": step_count,
                 "current_step": current_step,
                 "language": language,
                 "language_selected": language_selected,
@@ -167,8 +165,8 @@ def ussd_callback(request):
                 response = f"CON {get_text(language, 'language_selection')}"
         
         # STATE-BASED: LANGUAGE SELECTION
-        # Trigger when in language_selection state, regardless of step_count
-        # This fixes the bug where deep menu navigation (e.g., 1*99*2) breaks selection
+        # Trigger when in language_selection state, regardless of path depth
+        # Works with 1*99*2 (change language) as current_step will be "2"
         elif current_state == "language_selection" and current_step in ["1", "2"]:
             if current_step == "1":
                 # SELECT ENGLISH
@@ -237,7 +235,8 @@ def ussd_callback(request):
                 reset_session_county_page(phone_number)
                 response = f"CON {get_text(language, 'language_selection')}"
         
-        # STATE-BASED ROUTING: County selection takes priority over main menu routing
+        # STATE-BASED ROUTING: County selection
+        # Only triggers when state is county_selection and current_step is a county code
         elif current_state == "county_selection" and current_step in COUNTIES:
             # User is selecting a county
             county_code = current_step
@@ -272,95 +271,9 @@ def ussd_callback(request):
             set_session_state(phone_number, "main_menu")
             response = f"CON {get_text(language, 'main_menu')}"
         
-        # STEP 2+: HANDLE CONCATENATED STEPS (format: {language}*{step1}*{step2}*...)
-        elif step_count >= 2:
-            # User's language is set from step 0 (language selection), now handle subsequent menu choices
-            menu_choice = steps[1] if len(steps) > 1 else ""
-            
-            if menu_choice == "1":
-                # Register option (step 1)
-                if step_count == 2:
-                    # Just selected register, show county menu
-                    set_session_state(phone_number, "county_selection")
-                    county_page = get_session_county_page(phone_number)
-                    response = f"CON {build_county_menu(language, page=county_page, counties_per_page=5)}"
-                elif step_count == 3:
-                    # Selected county (step 2)
-                    county_code = steps[2]
-                    if county_code in COUNTIES:
-                        county = COUNTIES[county_code]
-                        counties_display = COUNTY_DISPLAY.get(language, COUNTY_DISPLAY["en"])
-                        county_display = counties_display[county_code]
-                        
-                        try:
-                            user_alert, created = UserAlert.objects.update_or_create(
-                                phone_number=phone_number,
-                                defaults={
-                                    "county": county,
-                                    "language": language,
-                                    "is_active": True,
-                                },
-                            )
-                            # Send confirmation SMS
-                            msg = get_text(language, "registration_confirmation", county=county_display)
-                            AfricasTalkingService.send_sms(phone_number, msg)
-                            success_text = get_text(language, "registration_success", county=county_display)
-                            # Keep language preference but reset state to main_menu for next interaction
-                            if phone_number in _ussd_sessions:
-                                _ussd_sessions[phone_number]["state"] = "main_menu"
-                            response = f"END {success_text}"
-                        except Exception as e:
-                            error_text = get_text(language, "registration_error")
-                            response = f"END {error_text}"
-                            print(f"Registration error for {phone_number}: {e}")
-                    else:
-                        error_text = get_text(language, "invalid_county")
-                        response = f"END {error_text}"
-            
-            elif menu_choice == "2":
-                # Check risk status
-                if step_count == 2:
-                    # Show risk status
-                    try:
-                        user = UserAlert.objects.get(phone_number=phone_number)
-                        language = user.language
-                        alert = ClimateAlert.objects.filter(
-                            county=user.county, approved=True
-                        ).order_by("-created_at").first()
-                        if alert:
-                            title = get_text(language, "risk_status_title", county=user.get_county_display())
-                            back_text = get_text(language, "back_to_menu")
-                            set_session_state(phone_number, "risk_status")
-                            response = f"CON {title}\n{alert.message}\n{back_text}"
-                        else:
-                            no_alerts = get_text(language, "no_alerts", county=user.get_county_display())
-                            response = f"END {no_alerts}"
-                    except UserAlert.DoesNotExist:
-                        register_first = get_text(language, "register_first")
-                        response = f"END {register_first}"
-                elif step_count == 3 and steps[2] == "1":
-                    # Back to menu from risk status
-                    set_session_state(phone_number, "main_menu")
-                    response = f"CON {get_text(language, 'main_menu')}"
-            
-            elif menu_choice == "3":
-                # Unsubscribe
-                try:
-                    UserAlert.objects.filter(phone_number=phone_number).update(is_active=False)
-                    unsubscribed_text = get_text(language, "unsubscribed")
-                    response = f"END {unsubscribed_text}"
-                except Exception as e:
-                    error_text = get_text(language, "unsubscribe_error")
-                    response = f"END {error_text}"
-                    print(f"Unsubscribe error: {e}")
-            else:
-                # Invalid menu choice at step 2+, show main menu
-                set_session_state(phone_number, "main_menu")
-                response = f"CON {get_text(language, 'main_menu')}"
-        
-        # STATE-BASED ROUTING: Main menu and other single-step requests
-        elif language_selected and step_count == 1:
-            # User has language selected, route based on current step
+        # STATE-BASED ROUTING: Main menu options (current_step driven, not step_count)
+        # These trigger when state is main_menu and user presses 1, 2, or 3
+        elif current_state == "main_menu" and language_selected:
             if current_step == "1":
                 # Register option - show county menu
                 set_session_state(phone_number, "county_selection")
@@ -396,7 +309,7 @@ def ussd_callback(request):
                     response = f"END {error_text}"
                     print(f"Unsubscribe error: {e}")
             else:
-                # Invalid option - show main menu
+                # Invalid option in main menu - show main menu again
                 response = f"CON {get_text(language, 'main_menu')}"
 
         else:
