@@ -56,10 +56,14 @@ TRANSLATIONS = {
         'invalid_option': 'Invalid option. Please try again.',
         'session_timeout': 'Session expired. Please dial again.',
         'back': '1. Back',
+        # IMPROVEMENT 5: Navigation control labels for English
+        'back_option': '0. Back',
+        'main_menu_option': '00. Main menu',
+        'more_option': '98. More counties',
     },
     'sw': {
         'language_selection': 'Chagua Lugha:\n1. English\n2. Kiswahili',
-        'main_menu': 'Mfumo wa Onyo wa Tabia Nchi\n1. Jisajili kwa onyo\n2. Angalia hali ya hatari\n3. Sitisha',
+        'main_menu': 'Tahadhari ya Hali ya Hewa\n1. Jisajili kwa onyo\n2. Angalia hali ya hatari\n3. Sitisha',
         'county_selection': 'Chagua Kaunti:\n',
         'registration_success': 'Umejisajili kwa onyo za {county}.\nUtapokea ujumbe wa SMS.',
         'registration_confirmation': 'Karibu katika Mfumo wa Onyo wa Tabia Nchi. Umejisajili kwa onyo za {county}.',
@@ -76,6 +80,10 @@ TRANSLATIONS = {
         'invalid_option': 'Chaguo si sahihi. Tafadhali jaribu tena.',
         'session_timeout': 'Kikao kimeacha. Tafadhali piga upya.',
         'back': '1. Rudi',
+        # IMPROVEMENT 5: Navigation control labels for Swahili
+        'back_option': '0. Rudi',
+        'main_menu_option': '00. Menyu Kuu',
+        'more_option': '98. Kaunti zaidi',
     }
 }
 
@@ -174,14 +182,15 @@ def build_county_menu(language, page=1, counties_per_page=5):
         val = county_display[key]
         menu += f"{key}. {val}\n"
     
-    # IMPROVEMENT 4: Add navigation controls for English only
-    if language == 'en':
+    # IMPROVEMENT 4 & 5: Add navigation controls for both English and Swahili
+    # Support pagination and menu navigation in both languages
+    if language in ['en', 'sw']:
         # Add "More counties" option if not on last page
         if page < total_pages:
-            menu += "98. More counties\n"
+            menu += f"{get_text(language, 'more_option')}\n"
         
         # Add back and main menu options (standard USSD controls)
-        menu += "0. Back\n"
-        menu += "00. Main menu"
+        menu += f"{get_text(language, 'back_option')}\n"
+        menu += get_text(language, 'main_menu_option')
     
     return menu

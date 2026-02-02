@@ -151,14 +151,14 @@ def ussd_callback(request):
             reset_session_county_page(phone_number)
             response = f"CON {get_text('sw', 'main_menu')}"
     
-    # NAVIGATION CONTROL: 00 - Go to Main Menu (English only)
-    elif language == "en" and current_step == "00" and language_selected:
+    # NAVIGATION CONTROL: 00 - Go to Main Menu (English and Swahili)
+    elif language in ["en", "sw"] and current_step == "00" and language_selected:
         set_session_state(phone_number, "main_menu")
         reset_session_county_page(phone_number)
         response = f"CON {get_text(language, 'main_menu')}"
     
-    # NAVIGATION CONTROL: 98 - Next page (English county menu pagination only)
-    elif language == "en" and current_step == "98" and current_state == "county_selection":
+    # NAVIGATION CONTROL: 98 - Next page (English and Swahili county menu pagination)
+    elif language in ["en", "sw"] and current_step == "98" and current_state == "county_selection":
         current_page = get_session_county_page(phone_number)
         pagination = get_pagination_info(current_page, counties_per_page=5)
         
@@ -171,8 +171,8 @@ def ussd_callback(request):
             # Already on last page
             response = f"CON {build_county_menu(language, page=current_page, counties_per_page=5)}"
     
-    # NAVIGATION CONTROL: 0 - Back (English only)
-    elif language == "en" and current_step == "0" and language_selected:
+    # NAVIGATION CONTROL: 0 - Back (English and Swahili)
+    elif language in ["en", "sw"] and current_step == "0" and language_selected:
         # Go back based on current state
         if current_state == "county_selection":
             # From county selection → check if on paginated page
